@@ -469,7 +469,7 @@ end
 local Window = Rayfield:CreateWindow({
     Name = "Aimbot Avancado",
     LoadingTitle = "Carregando Script...",
-    LoadingSubtitle = "by Rafael",
+    LoadingSubtitle = "by Studios RAW",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "AimbotConfig",
@@ -488,7 +488,7 @@ local Window = Rayfield:CreateWindow({
         FileName = "AimbotKey",
         SaveKey = true,
         GrabKeyFromSite = false,
-        Key = {"AIMBOT2025", "RAFAEL123", "SCRIPT2025"}
+        Key = {"STUDIOSRAW", "STUDIOSRAW", "STUDIOSRAW"}
     }
 })
 
