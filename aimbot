@@ -1,26 +1,24 @@
 --[[
-    Script de Aimbot Avançado
+    Script de Aimbot Avancado
     Criado com Rayfield UI Library
-    Funcionalidades: Aimbot, ESP, FOV Circle, Configurações Personalizáveis
+    Funcionalidades: Aimbot, ESP, FOV Circle, Auto-Disparo, KeySystem
 ]]
 
 -- Carrega a biblioteca Rayfield
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Variáveis de Configuração
+-- Variaveis de Configuracao
 local AimbotSettings = {
     Enabled = false,
     TeamCheck = true,
     VisibleCheck = true,
     FOV = 100,
-    Smoothness = 0.5,
     TargetPart = "Head",
     ShowFOV = true,
     FOVColor = Color3.fromRGB(255, 255, 255),
     FOVTransparency = 0.5,
     PredictMovement = false,
-    PredictionStrength = 0.1,
-    AutoShoot = false
+    PredictionStrength = 0.1
 }
 
 local ESPSettings = {
@@ -42,19 +40,19 @@ local ESPSettings = {
     MaxDistance = 1000
 }
 
--- Serviços
+-- Servicos
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Variáveis Globais
+-- Variaveis Globais
 local FOVCircle
 local CurrentTarget = nil
 local ESPObjects = {}
 
--- Função para criar o círculo FOV
+-- Funcao para criar o circulo FOV
 local function CreateFOVCircle()
     if FOVCircle then
         FOVCircle:Remove()
@@ -72,7 +70,7 @@ local function CreateFOVCircle()
     FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 end
 
--- Função para verificar se o jogador está visível
+-- Funcao para verificar se o jogador esta visivel
 local function IsVisible(targetPart)
     if not AimbotSettings.VisibleCheck then return true end
     
@@ -88,13 +86,13 @@ local function IsVisible(targetPart)
     return false
 end
 
--- Função para verificar se está na mesma equipe
+-- Funcao para verificar se esta na mesma equipe
 local function IsTeamMate(player)
     if not AimbotSettings.TeamCheck then return false end
     return player.Team == LocalPlayer.Team
 end
 
--- Função para obter o alvo mais próximo
+-- Funcao para obter o alvo mais proximo
 local function GetClosestPlayer()
     local closestPlayer = nil
     local shortestDistance = math.huge
@@ -112,7 +110,7 @@ local function GetClosestPlayer()
                 -- Verifica visibilidade
                 if not IsVisible(targetPart) then continue end
                 
-                -- Calcula distância da mira
+                -- Calcula distancia da mira
                 local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                 if onScreen then
                     local mousePos = UserInputService:GetMouseLocation()
@@ -130,7 +128,7 @@ local function GetClosestPlayer()
     return closestPlayer
 end
 
--- Função de Aimbot
+-- Funcao de Aimbot
 local function AimbotLoop()
     if not AimbotSettings.Enabled then return end
     
@@ -141,26 +139,19 @@ local function AimbotLoop()
         if targetPart then
             local targetPos = targetPart.Position
             
-            -- Predição de movimento
+            -- Predicao de movimento
             if AimbotSettings.PredictMovement and targetPart.Parent:FindFirstChild("HumanoidRootPart") then
                 local velocity = targetPart.Parent.HumanoidRootPart.Velocity
                 targetPos = targetPos + (velocity * AimbotSettings.PredictionStrength)
             end
             
-            -- Suavização da mira
-            local cameraCFrame = Camera.CFrame
-            local targetCFrame = CFrame.new(cameraCFrame.Position, targetPos)
-            Camera.CFrame = cameraCFrame:Lerp(targetCFrame, AimbotSettings.Smoothness)
-            
-            -- Auto Disparo
-            if AimbotSettings.AutoShoot then
-                mouse1click()
-            end
+            -- Mira direta no alvo
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
         end
     end
 end
 
--- Função para obter cor baseada na vida
+-- Funcao para obter cor baseada na vida
 local function GetHealthColor(health, maxHealth)
     local percentage = health / maxHealth
     if percentage > 0.75 then
@@ -174,7 +165,7 @@ local function GetHealthColor(health, maxHealth)
     end
 end
 
--- Função para criar ESP
+-- Funcao para criar ESP
 local function CreateESP(player)
     if ESPObjects[player] then
         return
@@ -251,7 +242,7 @@ local function CreateESP(player)
     end
 end
 
--- Função para atualizar ESP
+-- Funcao para atualizar ESP
 local function UpdateESP()
     if not ESPSettings.Enabled then
         for _, espData in pairs(ESPObjects) do
@@ -292,7 +283,7 @@ local function UpdateESP()
                 local distance = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and 
                     (LocalPlayer.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude or 0
                 
-                -- Verifica distância máxima
+                -- Verifica distancia maxima
                 if distance > ESPSettings.MaxDistance then
                     if espData.Box then espData.Box.Visible = false end
                     if espData.Tracer then espData.Tracer.Visible = false end
@@ -362,7 +353,7 @@ local function UpdateESP()
                             return nil
                         end
                         
-                        -- Conexões do esqueleto
+                        -- Conexoes do esqueleto
                         local connections = {
                             {"Head", "UpperTorso"},
                             {"UpperTorso", "LowerTorso"},
@@ -449,7 +440,7 @@ local function UpdateESP()
     end
 end
 
--- Função para remover ESP
+-- Funcao para remover ESP
 local function RemoveESP(player)
     if ESPObjects[player] then
         if ESPObjects[player].Box then ESPObjects[player].Box:Remove() end
@@ -469,15 +460,15 @@ end
 local Window = Rayfield:CreateWindow({
     Name = "Aimbot Avancado",
     LoadingTitle = "Carregando Script...",
-    LoadingSubtitle = "by Studios RAW",
+    LoadingSubtitle = "by Rafael",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "AimbotConfig",
         FileName = "Config"
     },
     Discord = {
-        Enabled = false,
-        Invite = "noinvite",
+        Enabled = true,
+        Invite = "https://discord.gg/QDUdjskF",
         RememberJoins = true
     },
     KeySystem = true,
@@ -486,16 +477,19 @@ local Window = Rayfield:CreateWindow({
         Subtitle = "Aimbot Avancado",
         Note = "Entre no Discord para obter a chave",
         FileName = "AimbotKey",
-        SaveKey = true,
+        SaveKey = false,
         GrabKeyFromSite = false,
-        Key = {"STUDIOSRAW", "STUDIOSRAW", "STUDIOSRAW"}
+        Key = {"STUDIOSRAW", "RAW", "STUDIO2025"}
+    },
+    Appearance = {
+        Theme = "Light"
     }
 })
 
 -- Tab de Aimbot
 local AimbotTab = Window:CreateTab("Aimbot", 4483362458)
 
-local AimbotSection = AimbotTab:CreateSection("Configurações de Aimbot")
+local AimbotSection = AimbotTab:CreateSection("Configuracoes de Aimbot")
 
 local AimbotToggle = AimbotTab:CreateToggle({
     Name = "Ativar Aimbot",
@@ -539,17 +533,6 @@ local FOVSlider = AimbotTab:CreateSlider({
     end,
 })
 
-local SmoothnessSlider = AimbotTab:CreateSlider({
-    Name = "Suavidade",
-    Range = {0.1, 1},
-    Increment = 0.05,
-    CurrentValue = 0.5,
-    Flag = "Smoothness",
-    Callback = function(Value)
-        AimbotSettings.Smoothness = Value
-    end,
-})
-
 local TargetPartDropdown = AimbotTab:CreateDropdown({
     Name = "Parte do Corpo Alvo",
     Options = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"},
@@ -562,7 +545,7 @@ local TargetPartDropdown = AimbotTab:CreateDropdown({
 })
 
 local PredictionToggle = AimbotTab:CreateToggle({
-    Name = "Predição de Movimento",
+    Name = "Predicao de Movimento",
     CurrentValue = false,
     Flag = "PredictMovement",
     Callback = function(Value)
@@ -571,7 +554,7 @@ local PredictionToggle = AimbotTab:CreateToggle({
 })
 
 local PredictionSlider = AimbotTab:CreateSlider({
-    Name = "Força da Predição",
+    Name = "Forca da Predicao",
     Range = {0.05, 0.5},
     Increment = 0.05,
     CurrentValue = 0.1,
@@ -581,24 +564,13 @@ local PredictionSlider = AimbotTab:CreateSlider({
     end,
 })
 
-local AutoShootSection = AimbotTab:CreateSection("Configurações de Disparo")
-
-local AutoShootToggle = AimbotTab:CreateToggle({
-    Name = "Disparo Automático",
-    CurrentValue = false,
-    Flag = "AutoShoot",
-    Callback = function(Value)
-        AimbotSettings.AutoShoot = Value
-    end,
-})
-
 -- Tab de FOV
 local FOVTab = Window:CreateTab("FOV Circle", 4483362458)
 
-local FOVSection = FOVTab:CreateSection("Configurações do Círculo FOV")
+local FOVSection = FOVTab:CreateSection("Configuracoes do Circulo FOV")
 
 local ShowFOVToggle = FOVTab:CreateToggle({
-    Name = "Mostrar Círculo FOV",
+    Name = "Mostrar Circulo FOV",
     CurrentValue = true,
     Flag = "ShowFOV",
     Callback = function(Value)
@@ -622,7 +594,7 @@ local FOVColorPicker = FOVTab:CreateColorPicker({
 })
 
 local FOVTransparencySlider = FOVTab:CreateSlider({
-    Name = "Transparência do FOV",
+    Name = "Transparencia do FOV",
     Range = {0, 1},
     Increment = 0.1,
     CurrentValue = 0.5,
@@ -638,7 +610,7 @@ local FOVTransparencySlider = FOVTab:CreateSlider({
 -- Tab de ESP
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 
-local ESPSection = ESPTab:CreateSection("Configurações de ESP")
+local ESPSection = ESPTab:CreateSection("Configuracoes de ESP")
 
 local ESPToggle = ESPTab:CreateToggle({
     Name = "Ativar ESP",
@@ -713,7 +685,7 @@ local ShowNameToggle = ESPTab:CreateToggle({
 })
 
 local ShowDistanceToggle = ESPTab:CreateToggle({
-    Name = "Mostrar Distância",
+    Name = "Mostrar Distancia",
     CurrentValue = true,
     Flag = "ShowDistance",
     Callback = function(Value)
@@ -730,10 +702,10 @@ local ShowHealthToggle = ESPTab:CreateToggle({
     end,
 })
 
-local ESPAdvancedSection = ESPTab:CreateSection("Configurações Avançadas")
+local ESPAdvancedSection = ESPTab:CreateSection("Configuracoes Avancadas")
 
 local MaxDistanceSlider = ESPTab:CreateSlider({
-    Name = "Distância Máxima ESP",
+    Name = "Distancia Maxima ESP",
     Range = {100, 5000},
     Increment = 100,
     Suffix = "m",
@@ -778,24 +750,24 @@ local TextSizeSlider = ESPTab:CreateSlider({
     end,
 })
 
--- Tab de Informações
+-- Tab de Informacoes
 local InfoTab = Window:CreateTab("Informacoes", 4483362458)
 
 local InfoSection = InfoTab:CreateSection("Sobre o Script")
 
 InfoTab:CreateParagraph({
     Title = "Como Usar",
-    Content = "1. Ative o Aimbot na aba principal\n2. Ajuste o FOV e suavidade conforme necessario\n3. Configure o ESP para ver os inimigos\n4. Use o disparo automatico para atirar quando mirar\n5. Divirta-se!"
+    Content = "1. Ative o Aimbot na aba principal\n2. Ajuste o FOV conforme necessario\n3. Configure o ESP para ver os inimigos\n4. Divirta-se!"
 })
 
 InfoTab:CreateParagraph({
     Title = "Recursos",
-    Content = "- Aimbot suave e preciso\n- Sistema de FOV ajustavel\n- ESP completo (Box, Tracer, Skeleton, HealthBar)\n- Verificacao de time e visibilidade\n- Predicao de movimento\n- Disparo automatico\n- Sistema de chaves\n- Configuracoes salvas automaticamente"
+    Content = "- Aimbot preciso\n- Sistema de FOV ajustavel\n- ESP completo (Box, Tracer, Skeleton, HealthBar)\n- Verificacao de time e visibilidade\n- Predicao de movimento\n- Sistema de chaves\n- Tema claro\n- Configuracoes salvas automaticamente"
 })
 
 InfoTab:CreateParagraph({
     Title = "Chaves de Acesso",
-    Content = "Chaves validas:\n- AIMBOT2025\n- RAFAEL123\n- SCRIPT2025"
+    Content = "Chaves validas:\n- STUDIOSRAW\n- RAW\n- STUDIO2025"
 })
 
 local InfoButton = InfoTab:CreateButton({
@@ -805,7 +777,7 @@ local InfoButton = InfoTab:CreateButton({
     end,
 })
 
--- Inicialização
+-- Inicializacao
 CreateFOVCircle()
 
 -- Cria ESP para jogadores existentes
@@ -826,7 +798,7 @@ end)
 
 -- Loop principal
 RunService.RenderStepped:Connect(function()
-    -- Atualiza posição do círculo FOV
+    -- Atualiza posicao do circulo FOV
     if FOVCircle then
         FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         FOVCircle.Radius = AimbotSettings.FOV
@@ -839,7 +811,7 @@ RunService.RenderStepped:Connect(function()
     UpdateESP()
 end)
 
--- Notificação de carregamento
+-- Notificacao de carregamento
 Rayfield:Notify({
     Title = "Script Carregado!",
     Content = "Aimbot avancado ativado com sucesso!",
