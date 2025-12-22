@@ -18,7 +18,11 @@ local AimbotSettings = {
     FOVColor = Color3.fromRGB(255, 255, 255),
     FOVTransparency = 0.5,
     PredictMovement = false,
-    PredictionStrength = 0.1
+    PredictionStrength = 0.1,
+    HitboxEnabled = false,
+    HitboxSize = 5,
+    HitboxColor = Color3.fromRGB(255, 0, 0),
+    HitboxTransparency = 0.5
 }
 
 local ESPSettings = {
@@ -51,6 +55,7 @@ local LocalPlayer = Players.LocalPlayer
 local FOVCircle
 local CurrentTarget = nil
 local ESPObjects = {}
+local HitboxParts = {}
 
 -- Funcao para criar o circulo FOV
 local function CreateFOVCircle()
@@ -124,6 +129,49 @@ local function GetClosestPlayer()
     return closestPlayer
 end
 
+-- Funcao para expandir hitbox
+local function ExpandHitbox(player)
+    if not AimbotSettings.HitboxEnabled then return end
+    if not player.Character then return end
+    
+    for _, part in pairs(player.Character:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            if not HitboxParts[player] then HitboxParts[player] = {} end
+            if not HitboxParts[player][part] then
+                HitboxParts[player][part] = {
+                    OriginalSize = part.Size,
+                    OriginalTransparency = part.Transparency,
+                    OriginalColor = part.Color,
+                    OriginalCanCollide = part.CanCollide,
+                    OriginalMaterial = part.Material
+                }
+            end
+            
+            part.Size = Vector3.new(AimbotSettings.HitboxSize, AimbotSettings.HitboxSize, AimbotSettings.HitboxSize)
+            part.Transparency = AimbotSettings.HitboxTransparency
+            part.Color = AimbotSettings.HitboxColor
+            part.CanCollide = false
+            part.Material = Enum.Material.Neon
+        end
+    end
+end
+
+-- Funcao para restaurar hitbox
+local function RestoreHitbox(player)
+    if HitboxParts[player] then
+        for part, original in pairs(HitboxParts[player]) do
+            if part and part.Parent then
+                part.Size = original.OriginalSize
+                part.Transparency = original.OriginalTransparency
+                part.Color = original.OriginalColor
+                part.CanCollide = original.OriginalCanCollide
+                part.Material = original.OriginalMaterial
+            end
+        end
+        HitboxParts[player] = nil
+    end
+end
+
 -- Funcao de Aimbot
 local function AimbotLoop()
     if not AimbotSettings.Enabled then return end
@@ -131,6 +179,10 @@ local function AimbotLoop()
     CurrentTarget = GetClosestPlayer()
     
     if CurrentTarget and CurrentTarget.Character then
+        if AimbotSettings.HitboxEnabled then
+            ExpandHitbox(CurrentTarget)
+        end
+        
         local targetPart = CurrentTarget.Character:FindFirstChild(AimbotSettings.TargetPart)
         if targetPart then
             local targetPos = targetPart.Position
@@ -410,16 +462,16 @@ end
 local Window = Rayfield:CreateWindow({
     Name = "Aimbot Avancado",
     LoadingTitle = "Carregando Script...",
-    LoadingSubtitle = "by Rafael",
+    LoadingSubtitle = "by Studios RAW",
     ConfigurationSaving = {
         Enabled = false,
         FolderName = nil,
         FileName = nil
     },
     Discord = {
-        Enabled = true,
-        Invite = "https://discord.gg/QDUdjskF",
-        RememberJoins = true
+        Enabled = false,
+        Invite = "",
+        RememberJoins = false
     },
     KeySystem = true,
     KeySettings = {
@@ -494,6 +546,47 @@ AimbotTab:CreateSlider({
     CurrentValue = 0.1,
     Flag = "PredictionStrength",
     Callback = function(Value) AimbotSettings.PredictionStrength = Value end,
+})
+
+local HitboxSection = AimbotTab:CreateSection("Configuracoes de Hitbox")
+
+AimbotTab:CreateToggle({
+    Name = "Ativar Hitbox",
+    CurrentValue = false,
+    Flag = "HitboxEnabled",
+    Callback = function(Value)
+        AimbotSettings.HitboxEnabled = Value
+        if not Value then
+            for player, _ in pairs(HitboxParts) do
+                RestoreHitbox(player)
+            end
+        end
+    end,
+})
+
+AimbotTab:CreateSlider({
+    Name = "Tamanho do Hitbox",
+    Range = {1, 20},
+    Increment = 1,
+    CurrentValue = 5,
+    Flag = "HitboxSize",
+    Callback = function(Value) AimbotSettings.HitboxSize = Value end,
+})
+
+AimbotTab:CreateColorPicker({
+    Name = "Cor do Hitbox",
+    Color = Color3.fromRGB(255, 0, 0),
+    Flag = "HitboxColor",
+    Callback = function(Value) AimbotSettings.HitboxColor = Value end
+})
+
+AimbotTab:CreateSlider({
+    Name = "Transparencia do Hitbox",
+    Range = {0, 1},
+    Increment = 0.1,
+    CurrentValue = 0.5,
+    Flag = "HitboxTransparency",
+    Callback = function(Value) AimbotSettings.HitboxTransparency = Value end,
 })
 
 -- Tab de FOV
