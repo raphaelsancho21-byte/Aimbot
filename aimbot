@@ -1,792 +1,343 @@
---[[
-    Script de Aimbot Avancado
-    Criado com Rayfield UI Library
-    Funcionalidades: Aimbot, ESP, FOV Circle, KeySystem
-]]
-
--- Carrega a biblioteca Rayfield
+-- Carregar biblioteca Rayfield
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Variaveis de Configuracao
+-- Variáveis de configuração
 local AimbotSettings = {
     Enabled = false,
-    TeamCheck = true,
-    VisibleCheck = true,
-    FOV = 100,
-    TargetPart = "Head",
-    ShowFOV = true,
+    TeamCheck = false,
+    AliveCheck = true,
+    WallCheck = true,
+    AimKey = "Enum.UserInputType.MouseButton2", -- Botão Direito do Mouse por padrão
+    SnapToTarget = false,
+    SnapDistance = 300,
+    SnapKey = "Q",
+    Smoothing = 0.5,
+    FOVEnabled = true,
+    FOVRadius = 100,
     FOVColor = Color3.fromRGB(255, 255, 255),
-    FOVTransparency = 0.5,
-    PredictMovement = false,
-    PredictionStrength = 0.1,
-    HitboxEnabled = false,
-    HitboxSize = 5,
-    HitboxColor = Color3.fromRGB(255, 0, 0),
-    HitboxTransparency = 0.5
+    TargetPart = "Head",
+    -- Triggerbot
+    Triggerbot = false,
+    -- ESP
+    ESP_Enabled = false,
+    ESP_Box = false,
+    ESP_Names = false,
+    -- Performance
+    RaycastTick = 0,
+    RaycastInterval = 0.1 -- Segundos entre cada checagem de visibilidade (mais leve)
 }
 
-local ESPSettings = {
-    Enabled = false,
-    ShowName = true,
-    ShowDistance = true,
-    ShowHealth = true,
-    TeamCheck = true,
-    BoxESP = true,
-    TracerESP = false,
-    SkeletonESP = false,
-    HealthBarESP = true,
-    HealthBasedColor = true,
-    BoxThickness = 2,
-    BoxFilled = false,
-    BoxTransparency = 1,
-    TextSize = 14,
-    TextOutline = true,
-    MaxDistance = 1000
-}
-
--- Servicos
+-- Serviços
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Variaveis Globais
-local FOVCircle
-local CurrentTarget = nil
-local ESPObjects = {}
-local HitboxParts = {}
+-- Cache de Visibilidade para Performance
+local VisibilityCache = {}
 
--- Funcao para criar o circulo FOV
-local function CreateFOVCircle()
-    if FOVCircle then
-        FOVCircle:Remove()
-    end
+-- Círculo de FOV (Drawing Library)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 60
+FOVCircle.Radius = AimbotSettings.FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = AimbotSettings.FOVEnabled
+FOVCircle.Color = AimbotSettings.FOVColor
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+-- Armazenamento de desenhos ESP
+local ESP_Holders = {}
+
+local function CreateESP(Player)
+    if not Player or ESP_Holders[Player] then return end
+    local Box = Drawing.new("Square")
+    Box.Visible = false
+    Box.Color = Color3.fromRGB(255, 0, 0)
+    Box.Thickness = 1
+    Box.Filled = false
     
-    FOVCircle = Drawing.new("Circle")
-    FOVCircle.Thickness = 2
-    FOVCircle.NumSides = 64
-    FOVCircle.Radius = AimbotSettings.FOV
-    FOVCircle.Filled = false
-    FOVCircle.Visible = AimbotSettings.ShowFOV
-    FOVCircle.ZIndex = 999
-    FOVCircle.Transparency = AimbotSettings.FOVTransparency
-    FOVCircle.Color = AimbotSettings.FOVColor
-    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local Name = Drawing.new("Text")
+    Name.Visible = false
+    Name.Color = Color3.fromRGB(255, 255, 255)
+    Name.Size = 16
+    Name.Center = true
+    Name.Outline = true
+    
+    ESP_Holders[Player] = {Box = Box, Name = Name}
 end
 
--- Funcao para verificar se o jogador esta visivel
-local function IsVisible(targetPart)
-    if not AimbotSettings.VisibleCheck then return true end
-    
-    local ray = Ray.new(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position).Unit * 500)
-    local part, position = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
-    
-    if part then
-        local humanoid = part.Parent:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            return true
-        end
-    end
-    return false
-end
-
--- Funcao para verificar se esta na mesma equipe
-local function IsTeamMate(player)
-    if not AimbotSettings.TeamCheck then return false end
-    return player.Team == LocalPlayer.Team
-end
-
--- Funcao para obter o alvo mais proximo
-local function GetClosestPlayer()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local character = player.Character
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            local targetPart = character:FindFirstChild(AimbotSettings.TargetPart)
-            
-            if humanoid and humanoid.Health > 0 and targetPart then
-                if IsTeamMate(player) then continue end
-                if not IsVisible(targetPart) then continue end
-                
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    
-                    if distance < AimbotSettings.FOV and distance < shortestDistance then
-                        closestPlayer = player
-                        shortestDistance = distance
-                    end
-                end
-            end
-        end
-    end
-    
-    return closestPlayer
-end
-
--- Funcao para expandir hitbox
-local function ExpandHitbox(player)
-    if not AimbotSettings.HitboxEnabled then return end
-    if not player.Character then return end
-    
-    for _, part in pairs(player.Character:GetChildren()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            if not HitboxParts[player] then HitboxParts[player] = {} end
-            if not HitboxParts[player][part] then
-                HitboxParts[player][part] = {
-                    OriginalSize = part.Size,
-                    OriginalTransparency = part.Transparency,
-                    OriginalColor = part.Color,
-                    OriginalCanCollide = part.CanCollide,
-                    OriginalMaterial = part.Material
-                }
-            end
-            
-            part.Size = Vector3.new(AimbotSettings.HitboxSize, AimbotSettings.HitboxSize, AimbotSettings.HitboxSize)
-            part.Transparency = AimbotSettings.HitboxTransparency
-            part.Color = AimbotSettings.HitboxColor
-            part.CanCollide = false
-            part.Material = Enum.Material.Neon
-        end
+local function RemoveESP(Player)
+    if ESP_Holders[Player] then
+        ESP_Holders[Player].Box:Remove()
+        ESP_Holders[Player].Name:Remove()
+        ESP_Holders[Player] = nil
     end
 end
 
--- Funcao para restaurar hitbox
-local function RestoreHitbox(player)
-    if HitboxParts[player] then
-        for part, original in pairs(HitboxParts[player]) do
-            if part and part.Parent then
-                part.Size = original.OriginalSize
-                part.Transparency = original.OriginalTransparency
-                part.Color = original.OriginalColor
-                part.CanCollide = original.OriginalCanCollide
-                part.Material = original.OriginalMaterial
-            end
-        end
-        HitboxParts[player] = nil
-    end
-end
-
--- Funcao de Aimbot
-local function AimbotLoop()
-    if not AimbotSettings.Enabled then return end
-    
-    CurrentTarget = GetClosestPlayer()
-    
-    if CurrentTarget and CurrentTarget.Character then
-        if AimbotSettings.HitboxEnabled then
-            ExpandHitbox(CurrentTarget)
-        end
-        
-        local targetPart = CurrentTarget.Character:FindFirstChild(AimbotSettings.TargetPart)
-        if targetPart then
-            local targetPos = targetPart.Position
-            
-            if AimbotSettings.PredictMovement and targetPart.Parent:FindFirstChild("HumanoidRootPart") then
-                local velocity = targetPart.Parent.HumanoidRootPart.Velocity
-                targetPos = targetPos + (velocity * AimbotSettings.PredictionStrength)
-            end
-            
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
-        end
-    end
-end
-
--- Funcao para obter cor baseada na vida
-local function GetHealthColor(health, maxHealth)
-    local percentage = health / maxHealth
-    if percentage > 0.75 then
-        return Color3.fromRGB(0, 255, 0)
-    elseif percentage > 0.5 then
-        return Color3.fromRGB(255, 255, 0)
-    elseif percentage > 0.25 then
-        return Color3.fromRGB(255, 165, 0)
-    else
-        return Color3.fromRGB(255, 0, 0)
-    end
-end
-
--- Funcao para criar ESP
-local function CreateESP(player)
-    if ESPObjects[player] then return end
-    
-    local ESPFolder = Instance.new("Folder")
-    ESPFolder.Name = "ESP_" .. player.Name
-    ESPFolder.Parent = game.CoreGui
-    
-    ESPObjects[player] = {
-        Folder = ESPFolder,
-        Box = nil,
-        Tracer = nil,
-        Text = nil,
-        HealthBar = nil,
-        HealthBarOutline = nil,
-        Skeleton = {}
-    }
-    
-    local box = Drawing.new("Square")
-    box.Visible = false
-    box.Color = Color3.fromRGB(255, 255, 255)
-    box.Thickness = ESPSettings.BoxThickness
-    box.Transparency = ESPSettings.BoxTransparency
-    box.Filled = ESPSettings.BoxFilled
-    ESPObjects[player].Box = box
-    
-    local tracer = Drawing.new("Line")
-    tracer.Visible = false
-    tracer.Color = Color3.fromRGB(255, 255, 255)
-    tracer.Thickness = 2
-    tracer.Transparency = 1
-    ESPObjects[player].Tracer = tracer
-    
-    local text = Drawing.new("Text")
-    text.Visible = false
-    text.Color = Color3.fromRGB(255, 255, 255)
-    text.Size = ESPSettings.TextSize
-    text.Center = true
-    text.Outline = ESPSettings.TextOutline
-    text.Font = 2
-    ESPObjects[player].Text = text
-    
-    local healthBarOutline = Drawing.new("Square")
-    healthBarOutline.Visible = false
-    healthBarOutline.Color = Color3.fromRGB(0, 0, 0)
-    healthBarOutline.Thickness = 1
-    healthBarOutline.Transparency = 1
-    healthBarOutline.Filled = true
-    ESPObjects[player].HealthBarOutline = healthBarOutline
-    
-    local healthBar = Drawing.new("Square")
-    healthBar.Visible = false
-    healthBar.Color = Color3.fromRGB(0, 255, 0)
-    healthBar.Thickness = 1
-    healthBar.Transparency = 1
-    healthBar.Filled = true
-    ESPObjects[player].HealthBar = healthBar
-    
-    for i = 1, 13 do
-        local line = Drawing.new("Line")
-        line.Visible = false
-        line.Color = Color3.fromRGB(255, 255, 255)
-        line.Thickness = 2
-        line.Transparency = 1
-        table.insert(ESPObjects[player].Skeleton, line)
-    end
-end
-
--- Funcao para atualizar ESP
-local function UpdateESP()
-    if not ESPSettings.Enabled then
-        for _, espData in pairs(ESPObjects) do
-            if espData.Box then espData.Box.Visible = false end
-            if espData.Tracer then espData.Tracer.Visible = false end
-            if espData.Text then espData.Text.Visible = false end
-            if espData.HealthBar then espData.HealthBar.Visible = false end
-            if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-            for _, line in pairs(espData.Skeleton) do
-                line.Visible = false
-            end
-        end
-        return
-    end
-    
-    for player, espData in pairs(ESPObjects) do
-        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Head") then
-            local character = player.Character
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            local rootPart = character.HumanoidRootPart
-            local head = character.Head
-            
-            if ESPSettings.TeamCheck and IsTeamMate(player) then
-                if espData.Box then espData.Box.Visible = false end
-                if espData.Tracer then espData.Tracer.Visible = false end
-                if espData.Text then espData.Text.Visible = false end
-                if espData.HealthBar then espData.HealthBar.Visible = false end
-                if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-                for _, line in pairs(espData.Skeleton) do
-                    line.Visible = false
-                end
-                continue
-            end
-            
-            if humanoid and humanoid.Health > 0 then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
-                local distance = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and 
-                    (LocalPlayer.Character.HumanoidRootPart.Position - rootPart.Position).Magnitude or 0
-                
-                if distance > ESPSettings.MaxDistance then
-                    if espData.Box then espData.Box.Visible = false end
-                    if espData.Tracer then espData.Tracer.Visible = false end
-                    if espData.Text then espData.Text.Visible = false end
-                    if espData.HealthBar then espData.HealthBar.Visible = false end
-                    if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-                    for _, line in pairs(espData.Skeleton) do
-                        line.Visible = false
-                    end
-                    continue
-                end
-                
-                if onScreen then
-                    local espColor = ESPSettings.HealthBasedColor and 
-                        GetHealthColor(humanoid.Health, humanoid.MaxHealth) or 
-                        Color3.fromRGB(255, 255, 255)
-                    
-                    if ESPSettings.BoxESP and espData.Box then
-                        local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                        local legPos = Camera:WorldToViewportPoint(rootPart.Position - Vector3.new(0, 3, 0))
-                        
-                        local boxWidth = 2000 / screenPos.Z
-                        local boxHeight = headPos.Y - legPos.Y
-                        
-                        espData.Box.Size = Vector2.new(boxWidth, boxHeight)
-                        espData.Box.Position = Vector2.new(screenPos.X - boxWidth / 2, legPos.Y)
-                        espData.Box.Color = espColor
-                        espData.Box.Visible = true
-                        
-                        if ESPSettings.HealthBarESP and espData.HealthBar and espData.HealthBarOutline then
-                            local barWidth = 3
-                            local barHeight = boxHeight
-                            local healthPercentage = humanoid.Health / humanoid.MaxHealth
-                            
-                            espData.HealthBarOutline.Size = Vector2.new(barWidth + 2, barHeight + 2)
-                            espData.HealthBarOutline.Position = Vector2.new(screenPos.X - boxWidth / 2 - barWidth - 4, legPos.Y - 1)
-                            espData.HealthBarOutline.Visible = true
-                            
-                            espData.HealthBar.Size = Vector2.new(barWidth, barHeight * healthPercentage)
-                            espData.HealthBar.Position = Vector2.new(screenPos.X - boxWidth / 2 - barWidth - 3, legPos.Y + barHeight - (barHeight * healthPercentage))
-                            espData.HealthBar.Color = espColor
-                            espData.HealthBar.Visible = true
-                        end
-                    end
-                    
-                    if ESPSettings.TracerESP and espData.Tracer then
-                        espData.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                        espData.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-                        espData.Tracer.Color = espColor
-                        espData.Tracer.Visible = true
-                    end
-                    
-                    if ESPSettings.SkeletonESP and #espData.Skeleton > 0 then
-                        local function GetLimbPos(limbName)
-                            local limb = character:FindFirstChild(limbName)
-                            if limb then
-                                local pos, visible = Camera:WorldToViewportPoint(limb.Position)
-                                return visible and Vector2.new(pos.X, pos.Y) or nil
-                            end
-                            return nil
-                        end
-                        
-                        local connections = {
-                            {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-                            {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-                            {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-                            {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-                            {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}
-                        }
-                        
-                        for i, connection in ipairs(connections) do
-                            if espData.Skeleton[i] then
-                                local pos1 = GetLimbPos(connection[1])
-                                local pos2 = GetLimbPos(connection[2])
-                                
-                                if pos1 and pos2 then
-                                    espData.Skeleton[i].From = pos1
-                                    espData.Skeleton[i].To = pos2
-                                    espData.Skeleton[i].Color = espColor
-                                    espData.Skeleton[i].Visible = true
-                                else
-                                    espData.Skeleton[i].Visible = false
-                                end
-                            end
-                        end
-                    end
-                    
-                    if espData.Text then
-                        local displayText = ""
-                        if ESPSettings.ShowName then displayText = player.Name end
-                        if ESPSettings.ShowDistance then displayText = displayText .. "\n[" .. math.floor(distance) .. "m]" end
-                        if ESPSettings.ShowHealth then displayText = displayText .. "\n" .. math.floor(humanoid.Health) .. " HP" end
-                        
-                        espData.Text.Text = displayText
-                        espData.Text.Position = Vector2.new(screenPos.X, screenPos.Y + 20)
-                        espData.Text.Color = espColor
-                        espData.Text.Visible = true
-                    end
-                else
-                    if espData.Box then espData.Box.Visible = false end
-                    if espData.Tracer then espData.Tracer.Visible = false end
-                    if espData.Text then espData.Text.Visible = false end
-                    if espData.HealthBar then espData.HealthBar.Visible = false end
-                    if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-                    for _, line in pairs(espData.Skeleton) do line.Visible = false end
-                end
-            else
-                if espData.Box then espData.Box.Visible = false end
-                if espData.Tracer then espData.Tracer.Visible = false end
-                if espData.Text then espData.Text.Visible = false end
-                if espData.HealthBar then espData.HealthBar.Visible = false end
-                if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-                for _, line in pairs(espData.Skeleton) do line.Visible = false end
-            end
-        else
-            if espData.Box then espData.Box.Visible = false end
-            if espData.Tracer then espData.Tracer.Visible = false end
-            if espData.Text then espData.Text.Visible = false end
-            if espData.HealthBar then espData.HealthBar.Visible = false end
-            if espData.HealthBarOutline then espData.HealthBarOutline.Visible = false end
-            for _, line in pairs(espData.Skeleton) do line.Visible = false end
-        end
-    end
-end
-
--- Funcao para remover ESP
-local function RemoveESP(player)
-    if ESPObjects[player] then
-        if ESPObjects[player].Box then ESPObjects[player].Box:Remove() end
-        if ESPObjects[player].Tracer then ESPObjects[player].Tracer:Remove() end
-        if ESPObjects[player].Text then ESPObjects[player].Text:Remove() end
-        if ESPObjects[player].HealthBar then ESPObjects[player].HealthBar:Remove() end
-        if ESPObjects[player].HealthBarOutline then ESPObjects[player].HealthBarOutline:Remove() end
-        for _, line in pairs(ESPObjects[player].Skeleton) do line:Remove() end
-        ESPObjects[player].Folder:Destroy()
-        ESPObjects[player] = nil
-    end
-end
-
--- Cria a interface Rayfield
-local Window = Rayfield:CreateWindow({
-    Name = "Aimbot Avancado",
-    LoadingTitle = "Carregando Script...",
-    LoadingSubtitle = "by Studios RAW",
-    ConfigurationSaving = {
-        Enabled = false,
-        FolderName = nil,
-        FileName = nil
-    },
-    Discord = {
-        Enabled = false,
-        Invite = "",
-        RememberJoins = false
-    },
-    KeySystem = true,
-    KeySettings = {
-        Title = "Sistema de Chaves",
-        Subtitle = "Aimbot Avancado",
-        Note = "Entre no Discord para obter a chave: discord.gg/QDUdjskF",
-        FileName = "StudiosRaw",
-        SaveKey = false,
-        GrabKeyFromSite = false,
-        Key = {"STUDIOSRAW", "RAW", "STUDIO2025"}
-    }
-})
-
--- Tab de Aimbot
-local AimbotTab = Window:CreateTab("Aimbot", 4483362458)
-local AimbotSection = AimbotTab:CreateSection("Configuracoes de Aimbot")
-
-AimbotTab:CreateToggle({
-    Name = "Ativar Aimbot",
-    CurrentValue = false,
-    Flag = "AimbotEnabled",
-    Callback = function(Value) AimbotSettings.Enabled = Value end,
-})
-
-AimbotTab:CreateToggle({
-    Name = "Verificar Time",
-    CurrentValue = true,
-    Flag = "TeamCheck",
-    Callback = function(Value) AimbotSettings.TeamCheck = Value end,
-})
-
-AimbotTab:CreateToggle({
-    Name = "Verificar Visibilidade",
-    CurrentValue = true,
-    Flag = "VisibleCheck",
-    Callback = function(Value) AimbotSettings.VisibleCheck = Value end,
-})
-
-AimbotTab:CreateSlider({
-    Name = "Tamanho do FOV",
-    Range = {10, 500},
-    Increment = 5,
-    Suffix = "px",
-    CurrentValue = 100,
-    Flag = "FOVSize",
-    Callback = function(Value)
-        AimbotSettings.FOV = Value
-        if FOVCircle then FOVCircle.Radius = Value end
-    end,
-})
-
-AimbotTab:CreateDropdown({
-    Name = "Parte do Corpo Alvo",
-    Options = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"},
-    CurrentOption = {"Head"},
-    MultipleOptions = false,
-    Flag = "TargetPart",
-    Callback = function(Option) AimbotSettings.TargetPart = Option[1] end,
-})
-
-AimbotTab:CreateToggle({
-    Name = "Predicao de Movimento",
-    CurrentValue = false,
-    Flag = "PredictMovement",
-    Callback = function(Value) AimbotSettings.PredictMovement = Value end,
-})
-
-AimbotTab:CreateSlider({
-    Name = "Forca da Predicao",
-    Range = {0.05, 0.5},
-    Increment = 0.05,
-    CurrentValue = 0.1,
-    Flag = "PredictionStrength",
-    Callback = function(Value) AimbotSettings.PredictionStrength = Value end,
-})
-
-local HitboxSection = AimbotTab:CreateSection("Configuracoes de Hitbox")
-
-AimbotTab:CreateToggle({
-    Name = "Ativar Hitbox",
-    CurrentValue = false,
-    Flag = "HitboxEnabled",
-    Callback = function(Value)
-        AimbotSettings.HitboxEnabled = Value
-        if not Value then
-            for player, _ in pairs(HitboxParts) do
-                RestoreHitbox(player)
-            end
-        end
-    end,
-})
-
-AimbotTab:CreateSlider({
-    Name = "Tamanho do Hitbox",
-    Range = {1, 20},
-    Increment = 1,
-    CurrentValue = 5,
-    Flag = "HitboxSize",
-    Callback = function(Value) AimbotSettings.HitboxSize = Value end,
-})
-
-AimbotTab:CreateColorPicker({
-    Name = "Cor do Hitbox",
-    Color = Color3.fromRGB(255, 0, 0),
-    Flag = "HitboxColor",
-    Callback = function(Value) AimbotSettings.HitboxColor = Value end
-})
-
-AimbotTab:CreateSlider({
-    Name = "Transparencia do Hitbox",
-    Range = {0, 1},
-    Increment = 0.1,
-    CurrentValue = 0.5,
-    Flag = "HitboxTransparency",
-    Callback = function(Value) AimbotSettings.HitboxTransparency = Value end,
-})
-
--- Tab de FOV
-local FOVTab = Window:CreateTab("FOV Circle", 4483362458)
-local FOVSection = FOVTab:CreateSection("Configuracoes do Circulo FOV")
-
-FOVTab:CreateToggle({
-    Name = "Mostrar Circulo FOV",
-    CurrentValue = true,
-    Flag = "ShowFOV",
-    Callback = function(Value)
-        AimbotSettings.ShowFOV = Value
-        if FOVCircle then FOVCircle.Visible = Value end
-    end,
-})
-
-FOVTab:CreateColorPicker({
-    Name = "Cor do FOV",
-    Color = Color3.fromRGB(255, 255, 255),
-    Flag = "FOVColor",
-    Callback = function(Value)
-        AimbotSettings.FOVColor = Value
-        if FOVCircle then FOVCircle.Color = Value end
-    end
-})
-
-FOVTab:CreateSlider({
-    Name = "Transparencia do FOV",
-    Range = {0, 1},
-    Increment = 0.1,
-    CurrentValue = 0.5,
-    Flag = "FOVTransparency",
-    Callback = function(Value)
-        AimbotSettings.FOVTransparency = Value
-        if FOVCircle then FOVCircle.Transparency = Value end
-    end,
-})
-
--- Tab de ESP
-local ESPTab = Window:CreateTab("ESP", 4483362458)
-local ESPSection = ESPTab:CreateSection("Configuracoes de ESP")
-
-ESPTab:CreateToggle({
-    Name = "Ativar ESP",
-    CurrentValue = false,
-    Flag = "ESPEnabled",
-    Callback = function(Value) ESPSettings.Enabled = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Verificar Time (ESP)",
-    CurrentValue = true,
-    Flag = "ESPTeamCheck",
-    Callback = function(Value) ESPSettings.TeamCheck = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Box ESP",
-    CurrentValue = true,
-    Flag = "BoxESP",
-    Callback = function(Value) ESPSettings.BoxESP = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Tracer ESP",
-    CurrentValue = false,
-    Flag = "TracerESP",
-    Callback = function(Value) ESPSettings.TracerESP = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Skeleton ESP",
-    CurrentValue = false,
-    Flag = "SkeletonESP",
-    Callback = function(Value) ESPSettings.SkeletonESP = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Barra de Vida",
-    CurrentValue = true,
-    Flag = "HealthBarESP",
-    Callback = function(Value) ESPSettings.HealthBarESP = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Cor Baseada na Vida",
-    CurrentValue = true,
-    Flag = "HealthBasedColor",
-    Callback = function(Value) ESPSettings.HealthBasedColor = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Mostrar Nome",
-    CurrentValue = true,
-    Flag = "ShowName",
-    Callback = function(Value) ESPSettings.ShowName = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Mostrar Distancia",
-    CurrentValue = true,
-    Flag = "ShowDistance",
-    Callback = function(Value) ESPSettings.ShowDistance = Value end,
-})
-
-ESPTab:CreateToggle({
-    Name = "Mostrar Vida",
-    CurrentValue = true,
-    Flag = "ShowHealth",
-    Callback = function(Value) ESPSettings.ShowHealth = Value end,
-})
-
-local ESPAdvancedSection = ESPTab:CreateSection("Configuracoes Avancadas")
-
-ESPTab:CreateSlider({
-    Name = "Distancia Maxima ESP",
-    Range = {100, 5000},
-    Increment = 100,
-    Suffix = "m",
-    CurrentValue = 1000,
-    Flag = "MaxDistance",
-    Callback = function(Value) ESPSettings.MaxDistance = Value end,
-})
-
-ESPTab:CreateSlider({
-    Name = "Espessura da Caixa",
-    Range = {1, 5},
-    Increment = 1,
-    Suffix = "px",
-    CurrentValue = 2,
-    Flag = "BoxThickness",
-    Callback = function(Value)
-        ESPSettings.BoxThickness = Value
-        for _, espData in pairs(ESPObjects) do
-            if espData.Box then espData.Box.Thickness = Value end
-        end
-    end,
-})
-
-ESPTab:CreateSlider({
-    Name = "Tamanho do Texto",
-    Range = {10, 24},
-    Increment = 1,
-    Suffix = "px",
-    CurrentValue = 14,
-    Flag = "TextSize",
-    Callback = function(Value)
-        ESPSettings.TextSize = Value
-        for _, espData in pairs(ESPObjects) do
-            if espData.Text then espData.Text.Size = Value end
-        end
-    end,
-})
-
--- Tab de Informacoes
-local InfoTab = Window:CreateTab("Informacoes", 4483362458)
-local InfoSection = InfoTab:CreateSection("Sobre o Script")
-
-InfoTab:CreateParagraph({
-    Title = "Como Usar",
-    Content = "1. Ative o Aimbot na aba principal\n2. Ajuste o FOV conforme necessario\n3. Configure o ESP para ver os inimigos\n4. Divirta-se!"
-})
-
-InfoTab:CreateParagraph({
-    Title = "Recursos",
-    Content = "- Aimbot preciso\n- Sistema de FOV ajustavel\n- ESP completo (Box, Tracer, Skeleton, HealthBar)\n- Verificacao de time e visibilidade\n- Predicao de movimento\n- Sistema de chaves\n- Tema padrao"
-})
-
-InfoTab:CreateParagraph({
-    Title = "Chaves de Acesso",
-    Content = "Chaves validas:\n- STUDIOSRAW\n- RAW\n- STUDIO2025"
-})
-
-InfoTab:CreateButton({
-    Name = "Destruir Interface",
-    Callback = function() Rayfield:Destroy() end,
-})
-
--- Inicializacao
-CreateFOVCircle()
-
+-- Inicializar ESP para jogadores atuais
 for _, player in pairs(Players:GetPlayers()) do
     if player ~= LocalPlayer then CreateESP(player) end
 end
 
-Players.PlayerAdded:Connect(function(player) CreateESP(player) end)
-Players.PlayerRemoving:Connect(function(player) RemoveESP(player) end)
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(RemoveESP)
 
-RunService.RenderStepped:Connect(function()
-    if FOVCircle then
-        FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        FOVCircle.Radius = AimbotSettings.FOV
+-- Função para checar se a tecla/botão está pressionado (Suporta Mouse e Teclado)
+local function IsKeyPressed(InputString)
+    if not InputString then return false end
+    
+    -- Se for botão do mouse
+    if string.find(InputString, "MouseButton") then
+        local Button = InputString:match("MouseButton%d")
+        if Button == "MouseButton1" then return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) end
+        if Button == "MouseButton2" then return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) end
     end
-    AimbotLoop()
-    UpdateESP()
+    
+    -- Se for tecla do teclado
+    local Key = InputString:gsub("Enum.KeyCode.", "")
+    local success, keyCode = pcall(function() return Enum.KeyCode[Key] end)
+    if success and keyCode then
+        return UserInputService:IsKeyDown(keyCode)
+    end
+    
+    return false
+end
+
+-- Função Wallcheck com Cache
+local function GetVisibility(Player)
+    local curTime = tick()
+    if VisibilityCache[Player] and (curTime - VisibilityCache[Player].LastUpdate) < AimbotSettings.RaycastInterval then
+        return VisibilityCache[Player].Color, VisibilityCache[Player].IsVisible
+    end
+
+    local Character = Player.Character
+    if not Character or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Head") then 
+        return Color3.fromRGB(255, 0, 0), false
+    end
+    
+    local Head = Character:FindFirstChild("Head")
+    local Torso = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Torso")
+    if not Head or not Torso then return Color3.fromRGB(255, 0, 0), false end
+
+    local HeadVisible = #Camera:GetPartsObscuringTarget({LocalPlayer.Character.Head.Position, Head.Position}, {LocalPlayer.Character, Character}) == 0
+    local TorsoVisible = #Camera:GetPartsObscuringTarget({LocalPlayer.Character.Head.Position, Torso.Position}, {LocalPlayer.Character, Character}) == 0
+
+    local color = Color3.fromRGB(255, 0, 0)
+    local visible = false
+
+    if HeadVisible then
+        color = Color3.fromRGB(0, 255, 0)
+        visible = true
+    elseif TorsoVisible then
+        color = Color3.fromRGB(255, 255, 0)
+        visible = true
+    end
+
+    VisibilityCache[Player] = {Color = color, IsVisible = visible, LastUpdate = curTime}
+    return color, visible
+end
+
+-- Função para encontrar o jogador mais próximo dentro do FOV ou 3D
+local function GetClosestPlayer()
+    local Target = nil
+    local MaxDist = AimbotSettings.FOVRadius
+    local ClosestDistance3D = AimbotSettings.SnapDistance
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(AimbotSettings.TargetPart) and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then continue end
+            if AimbotSettings.AliveCheck and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health <= 0 then continue end
+            
+            local TargetPart = player.Character[AimbotSettings.TargetPart]
+            local _, visible = GetVisibility(player)
+            if AimbotSettings.WallCheck and not visible then continue end
+            
+            if AimbotSettings.SnapToTarget and IsKeyPressed(AimbotSettings.SnapKey) then
+                local Dist3D = (LocalPlayer.Character.HumanoidRootPart.Position - TargetPart.Position).Magnitude
+                if Dist3D < ClosestDistance3D then
+                    ClosestDistance3D = Dist3D
+                    Target = player
+                end
+            elseif not AimbotSettings.SnapToTarget then
+                local ScreenPos, OnScreen = Camera:WorldToViewportPoint(TargetPart.Position)
+                if OnScreen then
+                    local MousePos = UserInputService:GetMouseLocation()
+                    local Dist = (Vector2.new(ScreenPos.X, ScreenPos.Y) - MousePos).Magnitude
+                    if Dist < MaxDist then
+                        MaxDist = Dist
+                        Target = player
+                    end
+                end
+            end
+        end
+    end
+    return Target
+end
+
+-- Janela do Rayfield (Matrix Theme & Key System)
+local Window = Rayfield:CreateWindow({
+    Name = "Sirius HUB | Elite V4",
+    LoadingTitle = "Sirius HUB Otimizado",
+    LoadingSubtitle = "Performance & Controle",
+    Theme = {
+        TextColor = Color3.fromRGB(0, 255, 0),
+        Background = Color3.fromRGB(0, 10, 0),
+        Topbar = Color3.fromRGB(0, 20, 0),
+        Shadow = Color3.fromRGB(0, 0, 0),
+        NotificationBackground = Color3.fromRGB(0, 15, 0),
+        NotificationActionsBackground = Color3.fromRGB(0, 25, 0),
+        TabBackground = Color3.fromRGB(0, 12, 0),
+        TabStroke = Color3.fromRGB(0, 40, 0),
+        TabBackgroundSelected = Color3.fromRGB(0, 100, 0),
+        TabTextColor = Color3.fromRGB(0, 200, 0),
+        SelectedTabTextColor = Color3.fromRGB(0, 255, 0),
+        ElementBackground = Color3.fromRGB(0, 15, 0),
+        ElementBackgroundHover = Color3.fromRGB(0, 30, 0),
+        SecondaryElementBackground = Color3.fromRGB(0, 18, 0),
+        ElementStroke = Color3.fromRGB(0, 50, 0),
+        SecondaryElementStroke = Color3.fromRGB(0, 40, 0),
+        SliderBackground = Color3.fromRGB(0, 80, 0),
+        SliderProgress = Color3.fromRGB(0, 255, 0),
+        SliderStroke = Color3.fromRGB(0, 120, 0),
+        ToggleBackground = Color3.fromRGB(0, 25, 0),
+        ToggleEnabled = Color3.fromRGB(0, 255, 0),
+        ToggleDisabled = Color3.fromRGB(0, 50, 0),
+        ToggleEnabledStroke = Color3.fromRGB(0, 200, 0),
+        ToggleDisabledStroke = Color3.fromRGB(0, 60, 0),
+        ToggleEnabledOuterStroke = Color3.fromRGB(0, 150, 0),
+        ToggleDisabledOuterStroke = Color3.fromRGB(0, 40, 0),
+        InputBackground = Color3.fromRGB(0, 15, 0),
+        InputStroke = Color3.fromRGB(0, 50, 0),
+        PlaceholderColor = Color3.fromRGB(0, 100, 0)
+    },
+    ConfigurationSaving = { Enabled = true, FolderName = "SiriusScripts", FileName = "AimbotConfig" },
+    KeySystem = true,
+    KeySettings = {
+        Title = "Aimlock Key System",
+        Subtitle = "STUDIOSRAW",
+        Note = "by Sirius AI",
+        FileName = "StudiosRaw",
+        SaveKey = true,
+        GrabKeyFromSite = false,
+        Key = {"STUDIOS", "RAW", "STUDIOSRAW"}
+    }
+})
+
+local CombatTab = Window:CreateTab("Combat", 4483362458)
+local VisualTab = Window:CreateTab("Visuals", 4483362458)
+
+CombatTab:CreateSection("Aimbot")
+CombatTab:CreateToggle({Name = "Ativar Aimbot", CurrentValue = false, Callback = function(v) AimbotSettings.Enabled = v end})
+
+CombatTab:CreateKeybind({
+    Name = "Tecla da Mira (Hold)",
+    CurrentKeybind = "MouseButton2",
+    HoldToInteract = false,
+    Callback = function(k) AimbotSettings.AimKey = tostring(k) end
+})
+
+CombatTab:CreateSlider({
+    Name = "Suavização",
+    Range = {0, 1},
+    Increment = 0.05,
+    CurrentValue = 0.5,
+    Callback = function(v) AimbotSettings.Smoothing = v end
+})
+
+CombatTab:CreateSection("Snap 360")
+CombatTab:CreateToggle({Name = "Snap to Target", CurrentValue = false, Callback = function(v) AimbotSettings.SnapToTarget = v end})
+CombatTab:CreateKeybind({Name = "Tecla do Snap", CurrentKeybind = "Q", HoldToInteract = false, Callback = function(k) AimbotSettings.SnapKey = tostring(k) end})
+CombatTab:CreateSlider({Name = "Distância do Snap", Range = {50, 1000}, Increment = 50, CurrentValue = 300, Callback = function(v) AimbotSettings.SnapDistance = v end})
+
+CombatTab:CreateSection("Extras")
+CombatTab:CreateToggle({Name = "Wall Check", CurrentValue = true, Callback = function(v) AimbotSettings.WallCheck = v end})
+CombatTab:CreateToggle({Name = "Triggerbot", CurrentValue = false, Callback = function(v) AimbotSettings.Triggerbot = v end})
+
+VisualTab:CreateSection("ESP")
+VisualTab:CreateToggle({Name = "Ativar ESP", CurrentValue = false, Callback = function(v) AimbotSettings.ESP_Enabled = v end})
+VisualTab:CreateToggle({Name = "Box ESP", CurrentValue = false, Callback = function(v) AimbotSettings.ESP_Box = v end})
+VisualTab:CreateToggle({Name = "Name ESP", CurrentValue = false, Callback = function(v) AimbotSettings.ESP_Names = v end})
+
+VisualTab:CreateSection("Performance")
+VisualTab:CreateSlider({
+    Name = "Intervalo Raycast (Leve)",
+    Range = {0, 0.5},
+    Increment = 0.05,
+    CurrentValue = 0.1,
+    Callback = function(v) AimbotSettings.RaycastInterval = v end
+})
+
+-- Loop Principal (Aimbot, Triggerbot, ESP)
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        FOVCircle.Position = UserInputService:GetMouseLocation()
+        
+        -- Lógica de Aimbot / Auto-Rotate
+        if AimbotSettings.Enabled then
+            local isAiming = IsKeyPressed(AimbotSettings.AimKey)
+            local isSnapping = AimbotSettings.SnapToTarget and IsKeyPressed(AimbotSettings.SnapKey)
+            
+            if isAiming or isSnapping then
+                local TargetPlayer = GetClosestPlayer()
+                if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild(AimbotSettings.TargetPart) then
+                    local TargetPart = TargetPlayer.Character[AimbotSettings.TargetPart]
+                    local TargetCFrame = CFrame.new(Camera.CFrame.Position, TargetPart.Position)
+                    if isSnapping then
+                        Camera.CFrame = TargetCFrame
+                    else
+                        Camera.CFrame = Camera.CFrame:Lerp(TargetCFrame, AimbotSettings.Smoothing)
+                    end
+                end
+            end
+        end
+        
+        -- Lógica de Triggerbot
+        if AimbotSettings.Triggerbot then
+            local Mouse = LocalPlayer:GetMouse()
+            local Target = Mouse.Target
+            if Target and Target.Parent and Target.Parent:FindFirstChild("Humanoid") then
+                local tp = Players:GetPlayerFromCharacter(Target.Parent)
+                if tp and (not AimbotSettings.TeamCheck or tp.Team ~= LocalPlayer.Team) then
+                    mouse1press(); task.wait(0.01); mouse1release()
+                end
+            end
+        end
+        
+        -- Lógica de ESP com CORES DINÂMICAS
+        for player, drawings in pairs(ESP_Holders) do
+            if AimbotSettings.ESP_Enabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+                local Root = player.Character.HumanoidRootPart
+                local Pos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+                if OnScreen then
+                    local color, _ = GetVisibility(player)
+                    
+                    -- Box ESP
+                    if AimbotSettings.ESP_Box then
+                        local Top = Camera:WorldToViewportPoint(Root.Position + Vector3.new(0, 3, 0))
+                        local Bot = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
+                        local Size = math.abs(Top.Y - Bot.Y)
+                        
+                        drawings.Box.Size = Vector2.new(Size * 0.6, Size)
+                        drawings.Box.Position = Vector2.new(Pos.X - drawings.Box.Size.X / 2, Pos.Y - drawings.Box.Size.Y / 2)
+                        drawings.Box.Color = color
+                        drawings.Box.Visible = true
+                    else drawings.Box.Visible = false end
+                    
+                    -- Name ESP
+                    if AimbotSettings.ESP_Names then
+                        drawings.Name.Text = player.Name .. " [" .. math.floor((Root.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude) .. "m]"
+                        drawings.Name.Position = Vector2.new(Pos.X, Pos.Y + (drawings.Box.Size.Y / 2) + 5)
+                        drawings.Name.Color = color
+                        drawings.Name.Visible = true
+                    else drawings.Name.Visible = false end
+                else drawings.Box.Visible = false; drawings.Name.Visible = false end
+            else drawings.Box.Visible = false; drawings.Name.Visible = false end
+        end
+    end)
 end)
 
-Rayfield:Notify({
-    Title = "Script Carregado!",
-    Content = "Aimbot avancado ativado com sucesso!",
-    Duration = 5,
-    Image = 4483362458,
-})
+-- Carregar Configuração ao Final
+Rayfield:LoadConfiguration()
+```
